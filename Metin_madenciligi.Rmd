@@ -1,0 +1,403 @@
+---
+title: "Metin madenciliği yöntemiyle matrix(1999) filminin incelenmesi"
+output: html_document
+---
+
+## Giriş
+
+Matrix filmindeki karekterlerin dialoglarının metin madenciliği yöntemleriyle analiz edilerek tutarlı anlamlar keşferederek uygun görselleştirme teknikleriyle anlatmakdır.
+
+## Analizde gereken kütüphaneler
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(tm)
+library(wordcloud)
+library(wordcloud2)
+library(tidytext)
+library(reshape2)
+library(RWeka)
+library(knitr)
+library(gridExtra)
+library(grid)
+library(magick)
+library(memery)
+library(ggimage)
+library(igraph)
+library(ggraph)
+```
+
+## Veri seti hakkında bilgi ve veri setinin yüklenmesi
+Veri Seti, yonetmenligini Lana Wachowski ve Lilly Wachowski'nin ustlendigi 1999 yapimi aksiyon-bilimkurgu türündeki The Matrix filmine ait karakter diyolaglarini icermektedir.
+
+Veri seti kaynağı: https://www.scripts.com/script/the_matrix_84
+
+Veri seti ilgili sayfadan alınarak uygun analize uygun formata getirilmiştir.
+
+```{r,message=FALSE}
+matrix <- read_csv("C:/Users/Fatih ekici/Downloads/matrix.csv")
+matrix[matrix$character=="MORPHEUS (V.O.)",]="MORPHEUS"
+```
+
+### Veri Setinin Özellikleri
+
+```{r}
+summary(matrix) #veriseti özeti
+head(matrix) #ilk 6 satır
+sum(is.na(matrix)) #eksik gözlem
+```
+
+Veri seti karekterin ve karektere ait metni içeren 2 değişkenden oluşmaktadır.Ve 845 adet metin parçası bulunmaktadır.Veride eksik gözlem bulunmamaktadır. 
+
+# Kantitatif Veri analizi
+
+**En fazla diyaloğa sahip karekter kimdir?**
+
+En çok söz hakkına sahip kişiyi tespit edelim.
+
+
+```{r}
+# En fazla diyaloğa sahip ilk 15 karakter.(Mutlak-Tam Değerler)
+matrix %>% 
+  count(character) %>% #karekter sayıları
+  arrange(desc(n)) %>% #büyükten küçüğe sıralama
+  slice(1:15) %>% #ilk 15 kişi
+  ggplot(aes(x=reorder(character, n), y=n)) + #büyükten küçüğe grafik
+  geom_bar(stat="identity", aes(fill=n), show.legend=FALSE) +  #bar grafiği
+  geom_label(aes(label=n)) + #metin sayısını gösterme
+  scale_fill_gradient(low="lightgreen", high="darkgreen")  + #renkler
+  labs(x="Karakterler", y="Diyalog",
+       title="Karakterlerin Diyalog Frekansları") +  
+  coord_flip() +
+  theme_bw()
+ 
+# Görselleştirmedeki görüntü.
+image <- image_read("https://stickerart.com.au/images/temp/images-products-0601-0704-w285-c5.gif") 
+grid.raster(image, x=0.9, y=0.35, height=0.50)
+```
+```{r}
+matrix %>% 
+  count(character) #karekter sayıları
+```
+
+Görünen o ki seçilmiş kişimiz ve morpheus en konuşkan kişiler.Bu görseli aynı zamanda oranlara göre gösterebiliriz.
+
+```{r}
+# Top 15 characters with more dialogues (relative values)
+matrix %>% 
+  count(character) %>%
+  arrange(desc(n)) %>%
+  slice(1:15) %>%
+  mutate(Percentage=n/nrow(matrix)) %>%
+  ggplot(aes(x=reorder(character, Percentage), y=Percentage)) +
+  geom_bar(stat="identity", aes(fill=Percentage), show.legend=FALSE) + 
+  geom_label(aes(label=paste0(round(Percentage*100, 2), "%"))) +
+  scale_y_continuous(labels=scales::percent) +
+  scale_fill_gradient(low="blue", high="red") +
+  labs(x="Character", y="Lines of dialogue (%)", 
+       title="Lines of dialogue per character (relative values)") + 
+  coord_flip() +
+  theme_bw()
+
+# Image in the visualization 
+image <- image_read("https://stickeroid.com/uploads/pic/skurd/thumb/stickeroid_5bf575c7af988.png") 
+grid.raster(image, x=0.85, y=0.26, height=0.34)
+```
+
+# Duygu Analizi
+Duygu analizi konusunu ele alalım. Metin madenciliği araçlarını, metnin duygusal içeriğine programlı olarak yaklaşmak için kullanabiliriz.
+
+## Tokenezation
+Burda 1 kelimelik tokenler 
+
+```{r}
+tokens <- matrix %>%  
+  mutate(dialogues=as.character(matrix$dialogues)) %>%
+  unnest_tokens(word, dialogues) #Teklimelik tokenler oluşturma
+head(tokens)
+```
+
+```{r message=FALSE, warning=FALSE}
+# Positive and negative words
+tokens %>%
+  inner_join(get_sentiments("bing")) %>% #sözlük kelimelerini seçme
+  count(word, sentiment, sort=TRUE) %>% #kelimeleri sayıp sıralama
+  acast(word ~ sentiment, value.var="n", fill=0) %>% #kelime sayısı değişkeni renklendirme için
+  comparison.cloud(colors=c("deepskyblue3", "firebrick3"), max.words=100) # cloud çizme
+```
+
+  Bu sayede en çok tekrar eden olumlu ve olumsuz kelimelere erişmiş olduk.
+
+
+
+
+
+```{r message=FALSE, warning=FALSE}
+# Her duygu ile ilişkili frekans
+sentiments <- tokens %>% 
+  inner_join(get_sentiments("nrc")) %>%
+  count(sentiment, sort=TRUE) 
+
+# Görselleştirme
+ggplot(data=sentiments, aes(x=reorder(sentiment, n), y=n)) + 
+  geom_bar(stat="identity", aes(fill=sentiment), show.legend=FALSE) +
+  geom_label(label=sentiments$n) +
+  labs(x="Sentiment", y="Frekans", 
+       title="Matrix - Duygu Analizi (NRC lexicon)") +
+  coord_flip() +
+  theme_bw()
+
+# Görselleştirmedeki Görüntü
+image <- image_read("C:/Users/Fatih ekici/Desktop/Adsız.png") 
+grid.raster(image, x=0.85, y=0.28, height=0.34)
+```
+
+
+
+```{r,message=FALSE}
+# Her duygu için en sık kullanılan 10 terim
+ tokens %>% 
+  inner_join(get_sentiments("nrc")) %>% #nrc duygu sözlüğü
+  count(sentiment, word, sort=TRUE) %>% #kelimeleri sayma
+  group_by(sentiment) %>% #duygulara göre gruplama
+  arrange(desc(n)) %>% #büyükten küçüğe sıralam
+  slice(1:10) %>% # en çok görünen 10 duygu
+  ggplot(aes(x=reorder(word, n), y=n)) +
+  geom_col(aes(fill=sentiment), show.legend=FALSE) +
+  theme(axis.text.x=element_text(angle=45, hjust=1)) +
+  facet_wrap(~sentiment, scales="free_y") +
+  labs(y="Sıklık", x="Kelimeler", 
+       title="Her duygu için en yaygın terimler (NRC sözlüğü)") +
+  coord_flip() +
+  theme_bw()
+
+# Görselleştirmedeki Görüntü 
+image <- image_read("https://d1yjjnpx0p53s8.cloudfront.net/styles/logo-thumbnail/s3/0002/0080/brand.gif?itok=aUkgy7w3") 
+grid.raster(image, x=0.78, y=0.15, height=0.35)
+```
+
+
+```{r,message=FALSE}
+# Daha fazla diyalog ile En İyi 10 karakter için Duygu Analizi
+tokens %>%
+  filter(character %in% c("NEO","MORPHEUS","TRINITY","TANK","AGENT SMITH",
+                     "CYPHER","ORACLE","AGENT JONES","SWITCH","APOC")) %>% #karekterler
+  inner_join(get_sentiments("nrc")) %>% #duygu sözlüğü
+  count(character, sentiment, sort=TRUE) %>% #karekterleri sayma
+  ggplot(aes(x=sentiment, y=n)) + #plot
+  geom_col(aes(fill=sentiment), show.legend=FALSE) + #bar grafiği
+  facet_wrap(~character, scales="free_x") + #parçalara ayırma
+  labs(x="Duygu", y="Sıklık", 
+       title="Her karakter için Duygu Analizi (NRC sözlüğü)") +
+  coord_flip() +
+  theme_bw()
+
+# Görselleştirmedeki Görüntü
+image <- image_read("http://2.bp.blogspot.com/-egyhR3uFA8s/VNyWNSNfKhI/AAAAAAAAARc/LBOHM3itg-s/s1600/Screen%2BShot%2B2015-02-12%2Bat%2B12.00.34.png") 
+grid.raster(image, x=0.78, y=0.15, height=0.25)
+```
+
+
+
+
+
+# metin temizleme ve kelime frekansları sıralama
+
+En çok tekrar eden kelimeleri ve karekterlere göre kelime sıklıklarını keşfedeceğiz.BU işlemlerde tek kelime sıralamalarını düzgün gösterebilmek için diyaloglardaki stopwordsleri kaldırmamız noktalama işaretlerini silmemiz gerekecektir.Yapılması gereken işlemleri yapmak için bir kaç adet fonksiyon tanımlayacağız bu fonksiyonlarıda işlemlere göre seçerek diyalogları analize hazır hale getireceğiz.
+
+
+```{r}
+# Text transformations
+cleanCorpus <- function(corpus){
+
+  corpus.tmp <- tm_map(corpus, removePunctuation) 
+  corpus.tmp <- tm_map(corpus.tmp, stripWhitespace)
+  corpus.tmp <- tm_map(corpus.tmp, content_transformer(tolower))
+  v_stopwords <- c(stopwords("english"), c("thats","weve","hes","theres","ive","im",
+                                           "will","can","cant","dont","youve","us",
+                                           "youre","youll","theyre","whats","didnt"))
+  corpus.tmp <- tm_map(corpus.tmp, removeWords, v_stopwords)
+  corpus.tmp <- tm_map(corpus.tmp, removeNumbers)
+  return(corpus.tmp)
+
+}
+```
+
+Tanımlamış olduğumuz cleanCorpus fonksiyonu veri setindeki noktalama işaretlerini boşlukları büyük harfleri küçük harflere dönüştürme işlemini yapacaktır.Son olarak stopwords ve sayıların silinmesi aşamasından sonra veri setini temiz hale getirmiş olucaktır.
+
+```{r}
+# Most frequent terms 
+frequentTerms <- function(text){
+
+  s.cor <- VCorpus(VectorSource(text))
+  s.cor.cl <- cleanCorpus(s.cor)
+  s.tdm <- TermDocumentMatrix(s.cor.cl)
+  s.tdm <- removeSparseTerms(s.tdm, 0.999)
+  m <- as.matrix(s.tdm)
+  word_freqs <- sort(rowSums(m), decreasing=TRUE)
+  dm <- data.frame(word=names(word_freqs), freq=word_freqs)
+  return(dm)
+
+}
+```
+
+Bu aşamada tanımlanan fonksiyon veri setinden en çok tekrar eden kelimelerin tablosunu oluşturur.Veriseti önce corpus dosyası haline getirilir.ardından cleanCorpus fonksiyonu çalıştırılır Daha sonra veriyi tdm(Term Document Matrix) haline getirerek çok az rastlanan kelimeleri siliyoruz.Daha sonra yeni bir değişken oluşturarak en çok tekrar eden kelimeleri içeren bir dosya oluşturuyoruz. ve frekans tablomuz oluşuyor.
+
+```{r}
+# Define bigram tokenizer 
+tokenizer2  <- function(x){
+
+  NGramTokenizer(x, Weka_control(min=2, max=2))
+
+}
+
+# Define trigram tokenizer 
+tokenizer3  <- function(x){
+
+  NGramTokenizer(x, Weka_control(min=3, max=3))
+
+}
+```
+
+r_weka paketiyle tokenleri tekrar eden 2 li ve 3 lü kelimeleri bulması adına fonksiyon adına tanımlıyoruz.
+
+```{r}
+# Most frequent bigrams 
+frequentBigrams <- function(text){
+
+  s.cor <- VCorpus(VectorSource(text))
+  s.cor.cl <- cleanCorpus(s.cor)
+  s.tdm <- TermDocumentMatrix(s.cor.cl, control=list(tokenize=tokenizer2))
+  s.tdm <- removeSparseTerms(s.tdm, 0.999)
+  m <- as.matrix(s.tdm)
+  word_freqs <- sort(rowSums(m), decreasing=TRUE)
+  dm <- data.frame(word=names(word_freqs), freq=word_freqs)
+  return(dm)}
+
+# Most frequent trigrams 
+frequentTrigrams <- function(text){
+
+  s.cor <- VCorpus(VectorSource(text))
+  s.cor.cl <- cleanCorpus(s.cor)
+  s.tdm <- TermDocumentMatrix(s.cor.cl, control=list(tokenize=tokenizer3))
+  s.tdm <- removeSparseTerms(s.tdm, 0.999)
+  m <- as.matrix(s.tdm)
+  word_freqs <- sort(rowSums(m), decreasing=TRUE)
+  dm <- data.frame(word=names(word_freqs), freq=word_freqs)
+  return(dm)
+
+}
+```
+
+en çok tekrar eden 2li ve 3lü kelime çiftlerinin tablosunu oluşturan fonksiyonu tanımladık.
+
+2'li kelime çiftleri
+```{r}
+# Bigrams - The Fellowship of the Ring
+bigrams1 <- frequentBigrams(iconv(matrix$dialogues, from="UTF-8", to="ASCII//TRANSLIT"))[1:10,]
+
+plot1 <- ggplot(data=bigrams1, aes(x=reorder(word, freq), y=freq)) +  
+  geom_bar(stat="identity", aes(fill=freq), show.legend=FALSE) +
+  geom_label(label=bigrams1$freq) +
+  scale_fill_gradient(low="darkorange", high="darkorange4") +
+  labs(x="ikilemeler", y="Sıklık") +
+  coord_flip() +
+  theme_bw() 
+```
+
+3'lü kelime çiftleri
+```{r}
+# Trigrams - The Fellowship of the Ring
+trigrams1 <- frequentTrigrams(iconv(matrix$dialogues, from="UTF-8", to="ASCII//TRANSLIT"))[1:10,]
+
+plot2 <- ggplot(data=trigrams1, aes(x=reorder(word, freq), y=freq)) +  
+  geom_bar(stat="identity", aes(fill=freq), show.legend=FALSE) +
+  geom_label(label=trigrams1$freq) +
+  scale_fill_gradient(low="darkseagreen1", high="darkseagreen4") +
+  labs(x="Üçlemeler", y="Sıklık") +
+  coord_flip() +
+  theme_bw() 
+
+# Subplot
+grid.arrange(plot1, plot2, ncol=2, top="Üçlemeler ve İkilemeler")
+```
+
+
+
+```{r}
+# ikilemeler
+bigrams <- frequentBigrams(iconv(matrix$dialogues, from="UTF-8", to="ASCII//TRANSLIT"))
+
+# Grafik oluşturmak için farklı sütunlardaki kelimeler
+bigrams_separated <- bigrams %>%
+  separate(word, c("word1", "word2"), sep=" ")
+
+# igraph objesi oluşturmak
+bigrams_graph <- bigrams_separated %>%
+  filter(freq>2) %>%
+  graph_from_data_frame() 
+  
+set.seed(2016)
+
+# ok işaretlerini oluşturmak
+a <- grid::arrow(type="closed", length=unit(0.15, "inches"))
+
+# ggraph görselleştirme
+ggraph(bigrams_graph, layout="fr") +
+  geom_edge_link(aes(edge_alpha=freq), show.legend = FALSE,
+                 arrow=a, end_cap=circle(0.07, 'inches')) +
+  geom_node_point(color="lightblue", size=5) +
+  geom_node_text(aes(label=name), vjust=1, hjust=1) +
+  theme_void()
+
+```
+
+
+
+```{r}
+# Stopwords
+mystopwords <- data_frame(word=c(stopwords("english"), 
+                                 c("thats","weve","hes","theres","ive","im",
+                                   "will","can","cant","dont","youve","us",
+                                   "youre","youll","theyre","whats","didnt", "â","mr")))
+
+# Anahtar sözcük içermeyen tokenler
+top.chars.tokens <- matrix %>%
+  mutate(dialogue=as.character(matrix$dialogues)) %>%
+  filter(character %in% c("NEO","MORPHEUS","TRINITY","TANK","AGENT SMITH",
+                     "CYPHER","ORACLE")) %>%
+  unnest_tokens(word, dialogue) %>%
+  anti_join(mystopwords, by="word")
+
+# Her karakter için en sık kullanılan kelimeler
+
+top.chars.tokens %>%
+  count(character, word) %>%
+  group_by(character) %>% 
+  arrange(desc(n)) %>%
+  slice(1:10) %>%
+  ungroup() %>%
+  mutate(word2=factor(paste(word, character, sep="__"), 
+                       levels=rev(paste(word, character, sep="__"))))%>%
+  ggplot(aes(x=word2, y=n)) +
+  geom_col(aes(fill=character), show.legend=FALSE) +
+  facet_wrap(~character, scales="free_y") +
+  labs(x="Kelimeler", y="Sıklık", 
+       title="Her karekter için en sık kullanılan kelimeler") +
+  scale_x_discrete(labels=function(x) gsub("__.+$", "", x)) +
+  coord_flip() +
+  theme_bw()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
